@@ -1,6 +1,9 @@
 [user]
 	signingkeykey = B9CE9D631CB74B61
 	name = th3c0d3br34ker
-	email = jainamvipul.desai2019@vitstudent.ac.in
+	email = jainamdesai.learn@gmail.com
 [credential]
 	helper = store
+[commit]
+	gpgsign = true
+	
