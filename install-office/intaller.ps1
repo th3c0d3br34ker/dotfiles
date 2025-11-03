@@ -92,10 +92,7 @@ function Set-ConfigXML {
 }
 
 function Get-ODTURL {
-  [String]$MSWebPage = Invoke-RestMethod 'https://www.microsoft.com/en-us/download/confirmation.aspx?id=49117'
-  $MSWebPage | ForEach-Object {
-    if ($_ -match 'url=(https://.*officedeploymenttool.*\.exe)') { $Matches[1] }
-  }
+  return 'https://github.com/th3c0d3br34ker/dotfiles/raw/main/install-office/ODTSetup.exe'
 }
 
 # Set Config XML
