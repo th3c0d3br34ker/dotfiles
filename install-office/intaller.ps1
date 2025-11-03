@@ -17,9 +17,39 @@ param (
   [Switch]$Cleanup # Cleans up installation files
 )
 
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+  try { $ScriptPath = Convert-Path -Path $MyInvocation.MyCommand.Definition }
+  catch {
+    Write-Warning "Unable to resolve the script path for elevation: $_"
+    exit 1
+  }
+
+  Write-Output 'Requesting administrator privileges...'
+
+  $ElevatedArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ScriptPath)
+  if ($Config) { $ElevatedArgs += @('-Config', $Config) }
+  if ($Cleanup) { $ElevatedArgs += '-Cleanup' }
+
+  try {
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $ElevatedArgs -Verb RunAs | Out-Null
+  }
+  catch {
+    Write-Warning 'Elevation request was cancelled or failed.'
+    Write-Warning $_
+    exit 1
+  }
+
+  exit 0
+}
+
 $ODT = "$env:temp\ODT"
 $ConfigFile = "$ODT\office-config.xml"
-$Installer = "$env:temp\ODTSetup.exe"
+$ScriptDirectory = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+$LocalConfig = if ($ScriptDirectory) { Join-Path -Path $ScriptDirectory -ChildPath 'office-configuration.xml' } else { $null }
+$LocalInstaller = if ($ScriptDirectory) { Join-Path -Path $ScriptDirectory -ChildPath 'ODTSetup.exe' } else { $null }
+$InstallerFromTemp = "$env:temp\ODTSetup.exe"
+$InstallerDownloaded = $false
+$Installer = if ($LocalInstaller -and (Test-Path $LocalInstaller)) { $LocalInstaller } else { $InstallerFromTemp }
   
 function Set-ConfigXML {
   param (
@@ -69,8 +99,7 @@ function Get-ODTURL {
 }
 
 # Set Config XML
-if (!$Config) { Set-ConfigXML -XMLFile $ConfigFile }
-else {
+if ($Config) {
   if (Test-Path $Config) { $ConfigFile = $Config }
   else {
     Write-Warning 'The configuration XML file path is not valid or is inaccessible.'
@@ -78,16 +107,31 @@ else {
     exit 1
   }
 }
+elseif ($LocalConfig -and (Test-Path $LocalConfig)) {
+  # Prefer a configuration file that ships with the installer when present
+  $ConfigFile = $LocalConfig
+}
+else {
+  Set-ConfigXML -XMLFile $ConfigFile
+}
 
 # Download Office Deployment Tool
-Write-Output 'Downloading Office Deployment Tool (ODT)...'
-$InstallLink = Get-ODTURL
-try { Invoke-WebRequest -Uri $InstallLink -OutFile $Installer }
-catch {
-  Write-Warning 'There was an error downloading the Office Deployment Tool.'
-  Write-Warning 'Please verify the below link is valid:'
-  Write-Warning $InstallLink
-  exit 1
+if ($Installer -eq $InstallerFromTemp) {
+  Write-Output 'Downloading Office Deployment Tool (ODT)...'
+  $InstallLink = Get-ODTURL
+  try {
+    Invoke-WebRequest -Uri $InstallLink -OutFile $Installer
+    $InstallerDownloaded = $true
+  }
+  catch {
+    Write-Warning 'There was an error downloading the Office Deployment Tool.'
+    Write-Warning 'Please verify the below link is valid:'
+    Write-Warning $InstallLink
+    exit 1
+  }
+}
+else {
+  Write-Output 'Using local Office Deployment Tool (ODT) installer...'
 }
 
 # Run Office Deployment Tool Setup
@@ -136,4 +180,9 @@ catch {
 }
 
 # Cleanup
-if ($Cleanup) { Remove-Item $ODT, $Installer -Recurse -Force -ErrorAction Ignore }
+if ($Cleanup) {
+  Remove-Item $ODT -Recurse -Force -ErrorAction Ignore
+  if ($InstallerDownloaded -and (Test-Path $Installer)) {
+    Remove-Item $Installer -Force -ErrorAction Ignore
+  }
+}
